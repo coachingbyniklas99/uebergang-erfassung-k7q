@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Übergangs-Erfassung</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mut:#667085;--line:#e3e6eb;--pri:#1f5fbf;--pri-d:#174a96;--ok:#1a7f4b;--okbg:#e6f4ec;--warn:#b45309;--warnbg:#fff4e0;--bad:#b42318}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px}
+header h1{font-size:19px;margin:0}
+header p{margin:2px 0 0;color:var(--mut);font-size:13.5px}
+main{max-width:720px;margin:0 auto;padding:16px}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 14px}
+button:hover{background:#f0f2f5}
+button.pri{background:var(--pri);color:#fff;border-color:var(--pri)}button.pri:hover{background:var(--pri-d)}
+button:disabled{opacity:.55;cursor:not-allowed}
+.pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.pick button{padding:18px 14px;text-align:left;background:var(--card);border-radius:12px}
+.pick b{display:block;font-size:17px}.pick span{color:var(--mut);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.card h2{margin:0 0 12px;font-size:19px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.grid .full{grid-column:1/-1}
+label{display:block;font-size:13px;color:var(--mut);margin-bottom:3px}
+label.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:16px;margin-top:22px}label.chk input{width:auto}
+.req::after{content:" *";color:var(--bad)}
+input,select,textarea{font:inherit;width:100%;padding:9px 10px;border:1px solid #cfd4dc;border-radius:8px;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid #9bbcf0;border-color:var(--pri)}
+textarea{min-height:80px;resize:vertical}
+.foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.msg{border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:14px}
+.msg.err{background:#fde8e6;color:var(--bad)}.msg.ok{background:var(--okbg);color:var(--ok)}.msg.warn{background:var(--warnbg);color:var(--warn)}
+.hist{margin-top:22px}.hist h3{font-size:14px;color:var(--mut);margin:0 0 6px;font-weight:600}
+.hist div{font-size:14px;padding:6px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
+.hist span{color:var(--mut);white-space:nowrap}
+.hp{position:absolute;left:-9999px;height:0;overflow:hidden}
+@media(max-width:560px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Übergangs-Erfassung</h1>
+  <p>Zwischenlösung während des Softwarewechsels – hier eintragen, später wird alles in die neue Software übernommen.</p>
+</header>
+<main>
+  <div id="msg"></div>
+  <div id="view"></div>
+  <div class="hist" id="hist"></div>
+</main>
+
+<script>
+/* ===== EINSTELLUNGEN ===== */
+// Wird nach der Einrichtung mit der Web-App-URL aus Google Apps Script ersetzt (siehe ANLEITUNG.md)
+const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwCvoAB4-KnMZ3UbTMiqpT-BKUEkX1kiGoQk7FklDNCpeww0_sWaTKS5faw5DRpslnu/exec';
+
+const SRC = ['Brief','E-Mail','Persönlich','Telefon','Formular/Website'];
+const TYPES = {
+  kuendigung:{label:'Kündigung',hint:'Mitglied kündigt',fields:[
+    {k:'vorname',l:'Vorname',req:1},{k:'nachname',l:'Nachname',req:1},
+    {k:'mitgliedsnr',l:'Mitgliedsnummer (Elvis)'},{k:'geburtsdatum',l:'Geburtsdatum',t:'date'},
+    {k:'eingang',l:'Eingang der Kündigung',t:'date',req:1,today:1},{k:'kuendigungZum',l:'Kündigung zum',t:'date'},
+    {k:'eingangPer',l:'Eingegangen per',t:'select',opts:SRC},{k:'abteilung',l:'Abteilung / Kurs'},
+    {k:'grund',l:'Grund (optional)',full:1},{k:'bemerkung',l:'Bemerkung',t:'textarea',full:1}]},
+  neuanmeldung:{label:'Neuanmeldung',hint:'Neues Mitglied',fields:[
+    {k:'vorname',l:'Vorname',req:1},{k:'nachname',l:'Nachname',req:1},
+    {k:'geburtsdatum',l:'Geburtsdatum',t:'date',req:1},{k:'eintritt',l:'Eintritt ab',t:'date',req:1},
+    {k:'strasse',l:'Straße und Hausnummer'},{k:'plz',l:'PLZ'},{k:'ort',l:'Ort'},
+    {k:'email',l:'E-Mail',t:'email'},{k:'telefon',l:'Telefon',t:'tel'},
+    {k:'abteilung',l:'Abteilung / Kurs',req:1},{k:'beitragsart',l:'Beitragsart (z. B. Erwachsene, Kind, Familie)'},
+    {k:'kontoinhaber',l:'Kontoinhaber (falls abweichend)'},{k:'iban',l:'IBAN'},
+    {k:'sepa',l:'SEPA-Mandat liegt vor',t:'checkbox'},{k:'bemerkung',l:'Bemerkung',t:'textarea',full:1}]},
+  uebungsleiter:{label:'Übungsleiter',hint:'Neu, Vertretung, Ausfall, Abrechnung …',fields:[
+    {k:'name',l:'Name Übungsleiter:in',req:1},
+    {k:'art',l:'Art',t:'select',opts:['Neuer Übungsleiter','Vertretung','Ausfall','Stundenabrechnung','Änderung Stammdaten','Sonstiges'],req:1},
+    {k:'kurs',l:'Kurs / Gruppe'},{k:'datum',l:'Datum',t:'date',today:1},
+    {k:'stunden',l:'Stunden'},{k:'vertretenWen',l:'Vertretung für'},
+    {k:'bemerkung',l:'Bemerkung',t:'textarea',full:1}]},
+  aenderung:{label:'Adress-/Bankänderung',hint:'Neue Adresse, IBAN, Kontakt',fields:[
+    {k:'vorname',l:'Vorname',req:1},{k:'nachname',l:'Nachname',req:1},
+    {k:'mitgliedsnr',l:'Mitgliedsnummer (Elvis)'},{k:'gueltigAb',l:'Gültig ab',t:'date',today:1},
+    {k:'art',l:'Was ändert sich?',t:'select',opts:['Adresse','Bankverbindung','Adresse und Bankverbindung','E-Mail / Telefon'],req:1,full:1},
+    {k:'strasse',l:'Neue Straße und Hausnummer'},{k:'plz',l:'Neue PLZ'},{k:'ort',l:'Neuer Ort'},
+    {k:'email',l:'Neue E-Mail',t:'email'},{k:'telefon',l:'Neue Telefonnummer',t:'tel'},
+    {k:'kontoinhaber',l:'Neuer Kontoinhaber'},{k:'iban',l:'Neue IBAN'},
+    {k:'sepa',l:'Neues SEPA-Mandat liegt vor',t:'checkbox'},{k:'bemerkung',l:'Bemerkung',t:'textarea',full:1}]},
+  sonstiges:{label:'Sonstiges',hint:'Alles, was nirgends passt',fields:[
+    {k:'betreff',l:'Betreff',req:1,full:1},{k:'name',l:'Betrifft (Person / Gruppe)'},{k:'mitgliedsnr',l:'Mitgliedsnummer'},
+    {k:'bemerkung',l:'Beschreibung',t:'textarea',full:1,req:1}]}
+};
+const KEYS = Object.keys(TYPES);
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today = () => { const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const fd = v => /^\d{4}-\d\d-\d\d$/.test(v||'') ? v.split('-').reverse().join('.') : (v||'');
+function lsGet(k){ try{ return localStorage.getItem(k)||''; }catch(e){ return ''; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function msg(kind,text){ $('msg').innerHTML = text?`<div class="msg ${kind}">${esc(text)}</div>`:''; }
+
+function home(){
+  $('view').innerHTML = `<div class="pick">${KEYS.map(k=>`<button data-k="${k}"><b>${esc(TYPES[k].label)}</b><span>${esc(TYPES[k].hint)}</span></button>`).join('')}</div>`;
+  $('view').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ msg('',''); form(b.dataset.k); });
+  renderHist();
+}
+
+function form(typ){
+  const T = TYPES[typ];
+  const fields = T.fields.map(f=>{
+    const val = f.today?today():'';
+    const cls = f.full||f.t==='textarea'?'full':'';
+    const lab = `<label for="f_${f.k}" class="${f.req?'req':''}">${esc(f.l)}</label>`;
+    if(f.t==='checkbox') return `<div class="${cls}"><label class="chk"><input type="checkbox" id="f_${f.k}"> ${esc(f.l)}</label></div>`;
+    if(f.t==='select') return `<div class="${cls}">${lab}<select id="f_${f.k}"><option value="">– bitte wählen –</option>${f.opts.map(o=>`<option>${esc(o)}</option>`).join('')}</select></div>`;
+    if(f.t==='textarea') return `<div class="${cls}">${lab}<textarea id="f_${f.k}"></textarea></div>`;
+    return `<div class="${cls}">${lab}<input id="f_${f.k}" type="${f.t||'text'}" value="${esc(val)}" autocomplete="off"></div>`;
+  }).join('');
+  const needCode = !lsGet('teamcode');
+  $('view').innerHTML = `<div class="card"><h2>${esc(T.label)}</h2>
+    <div class="grid">${fields}
+    <div class="full"><label for="f_von" class="req">Erfasst von (dein Name)</label><input id="f_von" value="${esc(lsGet('erfasstVon'))}"></div>
+    ${needCode?`<div class="full"><label for="f_code" class="req">Teamcode (hast du vom Büro bekommen)</label><input id="f_code" type="password" autocomplete="off"></div>`:''}
+    <div class="hp"><label>Nicht ausfüllen</label><input id="f_hp" tabindex="-1" autocomplete="off"></div></div>
+    <div class="foot"><button id="back">Zurück</button><button class="pri" id="send">Absenden</button></div></div>`;
+  $('back').onclick=()=>{ msg('',''); home(); };
+  $('send').onclick=()=>submit(typ,needCode);
+  window.scrollTo(0,0);
+}
+
+async function submit(typ,needCode){
+  const T = TYPES[typ];
+  if(!ENDPOINT || ENDPOINT.startsWith('HIER_')){ msg('warn','Die Seite ist noch nicht mit dem Google Sheet verbunden (siehe ANLEITUNG.md).'); return; }
+  if($('f_hp').value){ return; }
+  const vals = {};
+  for(const f of T.fields){ const el=$('f_'+f.k); vals[f.k] = f.t==='checkbox'?(el.checked?'ja':'nein'):el.value.trim(); }
+  const von = $('f_von').value.trim();
+  const code = needCode ? $('f_code').value.trim() : lsGet('teamcode');
+  const miss = T.fields.filter(f=>f.req&&!vals[f.k]).map(f=>f.l);
+  if(!von) miss.push('Erfasst von'); if(!code) miss.push('Teamcode');
+  if(miss.length){ msg('err','Bitte ausfüllen: '+miss.join(', ')); window.scrollTo(0,0); return; }
+  const payload = {typ, code, erfasstVon:von,
+    labels:T.fields.map(f=>f.l),
+    values:T.fields.map(f=>f.t==='date'?fd(vals[f.k]):vals[f.k])};
+  const btn=$('send'); btn.disabled=true; btn.textContent='Sende …'; msg('','');
+  try{
+    const r = await fetch(ENDPOINT,{method:'POST',body:JSON.stringify(payload)});
+    const j = await r.json();
+    if(!j.ok){
+      if(j.error==='code'){ lsSet('teamcode',''); throw new Error('Der Teamcode ist falsch.'); }
+      throw new Error('Der Server hat den Eintrag abgelehnt ('+(j.error||'Fehler')+').');
+    }
+    lsSet('erfasstVon',von); lsSet('teamcode',code);
+    addHist(T.label, title(typ,vals));
+    home(); msg('ok','Gespeichert: '+T.label+' – '+title(typ,vals));
+    window.scrollTo(0,0);
+  }catch(e){
+    btn.disabled=false; btn.textContent='Absenden';
+    msg('err', (e&&e.message&&!/Failed to fetch|NetworkError|Load failed/i.test(e.message)) ? e.message : 'Senden hat nicht geklappt (keine Verbindung?). Deine Eingaben sind noch da, bitte erneut auf „Absenden“ drücken.');
+    window.scrollTo(0,0);
+  }
+}
+function title(typ,v){
+  if(typ==='uebungsleiter') return v.name;
+  if(typ==='sonstiges') return v.betreff;
+  return [v.vorname,v.nachname].filter(Boolean).join(' ');
+}
+function addHist(label,t){
+  let h=[]; try{ h=JSON.parse(lsGet('hist')||'[]'); }catch(e){}
+  h.unshift({label,t,at:new Date().toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})});
+  lsSet('hist',JSON.stringify(h.slice(0,15)));
+}
+function renderHist(){
+  let h=[]; try{ h=JSON.parse(lsGet('hist')||'[]'); }catch(e){}
+  $('hist').innerHTML = h.length?`<h3>Zuletzt von diesem Gerät gesendet</h3>`+h.map(x=>`<div><b>${esc(x.label)}</b> ${esc(x.t)}<span>${esc(x.at)}</span></div>`).join(''):'';
+}
+function gate(){
+  $('hist').innerHTML='';
+  $('view').innerHTML = `<div class="card"><h2>Passwort</h2>
+    <label for="g_code" class="req">Teamcode</label><input id="g_code" type="password" autocomplete="off">
+    <div class="foot"><button class="pri" id="g_ok">Weiter</button></div></div>`;
+  const go = async()=>{
+    const code=$('g_code').value.trim(); if(!code) return;
+    $('g_ok').disabled=true; msg('','');
+    try{
+      const r = await fetch(ENDPOINT,{method:'POST',body:JSON.stringify({action:'check',code})});
+      const j = await r.json();
+      if(!j.ok) throw new Error('Falscher Teamcode.');
+      lsSet('teamcode',code); msg('',''); home();
+    }catch(e){
+      $('g_ok').disabled=false;
+      msg('err', e&&e.message==='Falscher Teamcode.' ? e.message : 'Keine Verbindung zum Server. Bitte später erneut versuchen.');
+    }
+  };
+  $('g_ok').onclick=go; $('g_code').onkeydown=e=>{ if(e.key==='Enter') go(); };
+}
+if(!ENDPOINT || ENDPOINT.startsWith('HIER_')){ msg('warn','Einrichtung offen: Die Web-App-URL fehlt noch (siehe ANLEITUNG.md).'); home(); }
+else if(lsGet('teamcode')) home(); else gate();
+</script>
+</body>
+</html>
